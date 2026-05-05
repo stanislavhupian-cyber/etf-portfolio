@@ -66,7 +66,7 @@
   </div>
 
   <div id="errorBox"></div>
-  <div id="priceLog" style="display:none;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:11px;color:#64748b;line-height:1.8"></div>
+  <div id="priceLog" style="display:none;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:6px 12px;margin-bottom:12px;font-size:11px;color:#64748b;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div>
   <div id="dashboard"></div>
 </div>
 
@@ -83,43 +83,47 @@ const TICKER_MAP={
   'NOKIA.FI':'NOKIA.HE',
 };
 
-function log(msg){
+function setStatus(msg){
   const el=document.getElementById('priceLog');
   el.style.display='block';
-  el.innerHTML+=msg+'<br>';
+  el.innerHTML=msg;
 }
 
 async function fetchMarketPrices(tickers){
   const prices={};
+  const sources={};
   const delay=ms=>new Promise(r=>setTimeout(r,ms));
+  const yahooUrl=yt=>`https://query1.finance.yahoo.com/v8/finance/chart/${yt}?interval=1d&range=5d`;
   const PROXIES=[
     {name:'Yahoo q1',  fn:yt=>`https://query1.finance.yahoo.com/v8/finance/chart/${yt}?interval=1d&range=5d`},
     {name:'Yahoo q2',  fn:yt=>`https://query2.finance.yahoo.com/v8/finance/chart/${yt}?interval=1d&range=5d`},
-    {name:'corsproxy', fn:yt=>`https://corsproxy.io/?url=${encodeURIComponent(`https://query1.finance.yahoo.com/v8/finance/chart/${yt}?interval=1d&range=5d`)}`},
-    {name:'allorigins',fn:yt=>`https://api.allorigins.win/raw?url=${encodeURIComponent(`https://query1.finance.yahoo.com/v8/finance/chart/${yt}?interval=1d&range=5d`)}`},
+    {name:'corsproxy', fn:yt=>`https://corsproxy.io/?url=${encodeURIComponent(yahooUrl(yt))}`},
+    {name:'cors.lol',  fn:yt=>`https://api.cors.lol/?url=${encodeURIComponent(yahooUrl(yt))}`},
+    {name:'thingproxy',fn:yt=>`https://thingproxy.freeboard.io/fetch/${yahooUrl(yt)}`},
+    {name:'allorigins',fn:yt=>`https://api.allorigins.win/raw?url=${encodeURIComponent(yahooUrl(yt))}`},
   ];
-  document.getElementById('priceLog').innerHTML='<b>Načítavanie cien:</b><br>';
   for(const t of tickers){
     const yt=TICKER_MAP[t]||t;
     let found=false;
     for(const proxy of PROXIES){
+      setStatus(`⏳ ${t} · skúšam ${proxy.name}…`);
       try{
         const res=await fetch(proxy.fn(yt));
-        if(!res.ok){log(`❌ ${t} — ${proxy.name}: HTTP ${res.status}`);continue;}
+        if(!res.ok) continue;
         const data=await res.json();
         const r=data?.chart?.result?.[0];
-        if(!r){log(`❌ ${t} — ${proxy.name}: žiadne dáta`);continue;}
+        if(!r) continue;
         const closes=r.indicators.quote[0].close.filter(c=>c!==null);
         prices[t]=closes.length?closes[closes.length-1]:r.meta.regularMarketPrice;
-        log(`✅ ${t} — ${proxy.name}: €${prices[t]?.toFixed(3)}`);
+        sources[t]=proxy.name;
         found=true;
         break;
-      }catch(e){log(`❌ ${t} — ${proxy.name}: ${e.message}`);}
+      }catch(e){}
     }
     if(!found) prices[t]=null;
-    await delay(400);
+    await delay(200);
   }
-  return prices;
+  return {prices,sources};
 }
 
 function processFile(file){
@@ -150,7 +154,7 @@ function processFile(file){
       if(!purchases.length) throw new Error("Žiadne nákupy sa nenašli.");
       const tickers=[...new Set(purchases.map(p=>p.ticker))];
       document.getElementById('dropLabel').textContent='⏳ Sťahujem aktuálne ceny…';
-      let marketPrices=await fetchMarketPrices(tickers);
+      const {prices:marketPrices,sources:priceSources}=await fetchMarketPrices(tickers);
       // fallback na cache z prices.js pre tickery, ktoré zlyhali
       const cache=window.MARKET_PRICES||{};
       const cacheDate=window.PRICES_DATE||'neznámy dátum';
@@ -159,14 +163,16 @@ function processFile(file){
         if(!marketPrices[t]&&cache[t]){
           marketPrices[t]=cache[t];
           fellBack.push(t);
-          log(`↩️ ${t} — fallback z cache (${cacheDate}): €${cache[t].toFixed(3)}`);
         }
       }
-      if(fellBack.length){
-        log(`<b>⚠️ Použitý cache z prices.js pre: ${fellBack.join(', ')}</b>`);
-      } else {
-        log(`<b>✅ Všetky ceny stiahnuté online</b>`);
-      }
+      const sourceCounts={};
+      for(const t of Object.keys(priceSources)) sourceCounts[priceSources[t]]=(sourceCounts[priceSources[t]]||0)+1;
+      const sourceParts=Object.entries(sourceCounts).map(([n,c])=>`${c}× ${n}`).join(', ');
+      const onlineCount=Object.keys(priceSources).length;
+      let summary=`${onlineCount}/${tickers.length} online`;
+      if(sourceParts) summary+=` (${sourceParts})`;
+      if(fellBack.length) summary+=` · ⚠️ ${fellBack.length}× cache (${cacheDate})`;
+      setStatus(`${fellBack.length?'⚠️':'✅'} ${summary}`);
       document.getElementById('dropLabel').textContent='✓ '+file.name;
       renderDashboard(purchases,deposits,marketPrices);
     }catch(err){
