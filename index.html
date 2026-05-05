@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>ETF Portfólio Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="prices.js" onerror="window.MARKET_PRICES={};window.PRICES_DATE=null;"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  body { font-family: 'DM Sans', system-ui, sans-serif; background: #f8fafc; margin: 0; padding: 24px 16px; color: #0f172a; }
+  .wrap { max-width: 760px; margin: 0 auto; }
+  h2 { font-size: 20px; font-weight: 600; margin: 0 0 4px; }
+  .subtitle { font-size: 13px; color: #64748b; margin: 0 0 20px; }
+  #dropzone { border: 1px dashed #cbd5e1; border-radius: 8px; padding: 10px 16px; text-align: center; cursor: pointer; background: #f8fafc; transition: all 0.15s; margin-bottom: 16px; display: flex; align-items: center; gap: 10px; justify-content: center; }
+  #dropzone:hover { border-color: #3b82f6; background: #eff6ff; }
+  #dropzone .icon { font-size: 16px; margin-bottom: 0; }
+  #dropLabel { font-size: 13px; font-weight: 500; }
+  #dropHint { font-size: 11px; color: #94a3b8; margin-top: 0; }
+  #errorBox { display: none; background: #fef2f2; border: 1px solid #fecaca; border-radius: 10px; padding: 12px 16px; color: #dc2626; font-size: 13px; margin-bottom: 16px; }
+  #dashboard { display: none; }
+  .metrics { display: grid; grid-template-columns: repeat(4,1fr); gap: 10px; margin-bottom: 18px; }
+  .metric { background: #f1f5f9; border-radius: 10px; padding: 14px 16px; }
+  .metric-label { font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 4px; }
+  .metric-value { font-size: 20px; font-weight: 600; }
+  .metric-sub { font-size: 12px; color: #94a3b8; margin-top: 2px; }
+  .etf-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; margin-bottom: 18px; }
+  .etf-card { background: #fff; border-radius: 14px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+  .etf-header { padding: 16px 20px; display: flex; justify-content: space-between; align-items: flex-start; }
+  .etf-ticker { color: rgba(255,255,255,0.65); font-size: 11px; margin-bottom: 4px; }
+  .etf-name { color: #fff; font-size: 16px; font-weight: 600; }
+  .etf-body { padding: 16px 20px; }
+  .etf-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+  .stat-label { font-size: 11px; color: #64748b; }
+  .stat-value { font-size: 15px; font-weight: 600; }
+  .perf-row { display: flex; gap: 8px; }
+  .perf-box { flex: 1; border-radius: 8px; padding: 8px 12px; text-align: center; }
+  .perf-label { font-size: 11px; color: #64748b; }
+  .perf-value { font-size: 15px; font-weight: 600; }
+  .history { margin-top: 14px; border-top: 1px solid #f1f5f9; padding-top: 12px; }
+  .history-label { font-size: 11px; color: #94a3b8; margin-bottom: 6px; }
+  .history-pills { display: flex; flex-wrap: wrap; gap: 4px; }
+  .pill { font-size: 11px; border-radius: 5px; padding: 3px 7px; }
+  .table-card { background: #fff; border-radius: 12px; border: 1px solid #e2e8f0; padding: 16px 20px; margin-bottom: 14px; }
+  .table-title { font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 10px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { padding: 6px 10px; text-align: right; color: #94a3b8; font-weight: 500; font-size: 11px; border-bottom: 1px solid #f1f5f9; }
+  td { padding: 7px 10px; text-align: right; border-bottom: 1px solid #f8fafc; }
+  .badge { border-radius: 5px; padding: 2px 7px; font-size: 11px; font-weight: 500; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h2>ETF Portfólio <span style="font-size:11px;font-weight:400;color:#94a3b8;margin-left:6px">v9</span></h2>
+  <p class="subtitle">Nahraj aktuálny XLSX výpis z Trading212</p>
+
+  <div id="dropzone" onclick="document.getElementById('fileInput').click()"
+    ondragover="event.preventDefault();this.style.borderColor='#3b82f6';this.style.background='#eff6ff'"
+    ondragleave="this.style.borderColor='';this.style.background=''"
+    ondrop="event.preventDefault();this.style.borderColor='';this.style.background='';if(event.dataTransfer.files[0])processFile(event.dataTransfer.files[0])">
+    <div class="icon">📂</div>
+    <div id="dropLabel">Klikni alebo presuň XLSX súbor</div>
+    <div id="dropHint">Export z Trading212 · Cash Operations list</div>
+    <input id="fileInput" type="file" accept=".xlsx,.xls" style="display:none" onchange="if(this.files[0])processFile(this.files[0])"/>
+  </div>
+
+  <div id="errorBox"></div>
+  <div id="priceLog" style="display:none;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:11px;color:#64748b;line-height:1.8"></div>
+  <div id="dashboard"></div>
+</div>
+
+<script>
+const COLORS = {
+  'IBCJ.DE': { bg:'#1e3a5f', light:'#dbeafe', text:'#1e40af', accent:'#3b82f6' },
+  'IBC4.DE': { bg:'#14532d', light:'#dcfce7', text:'#166534', accent:'#22c55e' },
+  'VWCE.DE': { bg:'#9f1239', light:'#ffe4e6', text:'#be123c', accent:'#fb7185' },
+  'NOKIA.FI': { bg:'#7c2d12', light:'#ffedd5', text:'#9a3412', accent:'#f97316' },
+};
+function getC(t){ return COLORS[t]||{bg:'#3b0764',light:'#ede9fe',text:'#6b21a8',accent:'#a855f7'}; }
+
+const TICKER_MAP={
+  'NOKIA.FI':'NOKIA.HE',
+};
+
+function log(msg){
+  const el=document.getElementById('priceLog');
+  el.style.display='block';
+  el.innerHTML+=msg+'<br>';
+}
+
+async function fetchMarketPrices(tickers){
+  const prices={};
+  const delay=ms=>new Promise(r=>setTimeout(r,ms));
+  const PROXIES=[
+    {name:'Yahoo q1',  fn:yt=>`https://query1.finance.yahoo.com/v8/finance/chart/${yt}?interval=1d&range=5d`},
+    {name:'Yahoo q2',  fn:yt=>`https://query2.finance.yahoo.com/v8/finance/chart/${yt}?interval=1d&range=5d`},
+    {name:'corsproxy', fn:yt=>`https://corsproxy.io/?url=${encodeURIComponent(`https://query1.finance.yahoo.com/v8/finance/chart/${yt}?interval=1d&range=5d`)}`},
+    {name:'allorigins',fn:yt=>`https://api.allorigins.win/raw?url=${encodeURIComponent(`https://query1.finance.yahoo.com/v8/finance/chart/${yt}?interval=1d&range=5d`)}`},
+  ];
+  document.getElementById('priceLog').innerHTML='<b>Načítavanie cien:</b><br>';
+  for(const t of tickers){
+    const yt=TICKER_MAP[t]||t;
+    let found=false;
+    for(const proxy of PROXIES){
+      try{
+        const res=await fetch(proxy.fn(yt));
+        if(!res.ok){log(`❌ ${t} — ${proxy.name}: HTTP ${res.status}`);continue;}
+        const data=await res.json();
+        const r=data?.chart?.result?.[0];
+        if(!r){log(`❌ ${t} — ${proxy.name}: žiadne dáta`);continue;}
+        const closes=r.indicators.quote[0].close.filter(c=>c!==null);
+        prices[t]=closes.length?closes[closes.length-1]:r.meta.regularMarketPrice;
+        log(`✅ ${t} — ${proxy.name}: €${prices[t]?.toFixed(3)}`);
+        found=true;
+        break;
+      }catch(e){log(`❌ ${t} — ${proxy.name}: ${e.message}`);}
+    }
+    if(!found) prices[t]=null;
+    await delay(400);
+  }
+  return prices;
+}
+
+function processFile(file){
+  document.getElementById('errorBox').style.display='none';
+  document.getElementById('dropLabel').textContent='✓ '+file.name;
+  const reader=new FileReader();
+  reader.onload=async e=>{
+    try{
+      const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array',cellDates:true,WTF:false,sheets:['Cash Operations'],dense:false});
+      const ws=wb.Sheets['Cash Operations'];
+      if(!ws) throw new Error("List 'Cash Operations' sa nenašiel.");
+      const raw=XLSX.utils.sheet_to_json(ws,{header:1,defval:null});
+      const hi=raw.findIndex(r=>r[0]==='Type');
+      if(hi===-1) throw new Error("Štruktúra súboru sa nezhoduje.");
+      const rows=raw.slice(hi+1);
+      const purchases=rows.filter(r=>r[0]==='Stock purchase').map(r=>{
+        const notes=String(r[6]||'');
+        let m=notes.match(/OPEN BUY ([\d.]+)(?:\/[\d.]+)? @ ([\d.]+)/);
+        if(!m) m=notes.match(/BUY ([\d.]+)(?:\/[\d.]+)? @ ([\d.]+)/);
+        let date=r[3];
+        if(!(date instanceof Date)) date=typeof date==='string'?new Date(date):new Date(Math.round((date-25569)*86400*1000));
+        const amount=Math.abs(parseFloat(r[4])||0);
+        const volume=m?parseFloat(m[1]):null;
+        const price=m?parseFloat(m[2]):(volume&&amount?amount/volume:null);
+        return{ticker:r[1]||'',instrument:r[2]||'',date,amount,volume,price};
+      }).filter(p=>p.ticker&&p.price);
+      const deposits=rows.filter(r=>r[0]==='Deposit').reduce((s,r)=>s+(parseFloat(r[4])||0),0);
+      if(!purchases.length) throw new Error("Žiadne nákupy sa nenašli.");
+      const tickers=[...new Set(purchases.map(p=>p.ticker))];
+      document.getElementById('dropLabel').textContent='⏳ Sťahujem aktuálne ceny…';
+      let marketPrices=await fetchMarketPrices(tickers);
+      // fallback na cache z prices.js pre tickery, ktoré zlyhali
+      const cache=window.MARKET_PRICES||{};
+      const cacheDate=window.PRICES_DATE||'neznámy dátum';
+      const fellBack=[];
+      for(const t of tickers){
+        if(!marketPrices[t]&&cache[t]){
+          marketPrices[t]=cache[t];
+          fellBack.push(t);
+          log(`↩️ ${t} — fallback z cache (${cacheDate}): €${cache[t].toFixed(3)}`);
+        }
+      }
+      if(fellBack.length){
+        log(`<b>⚠️ Použitý cache z prices.js pre: ${fellBack.join(', ')}</b>`);
+      } else {
+        log(`<b>✅ Všetky ceny stiahnuté online</b>`);
+      }
+      document.getElementById('dropLabel').textContent='✓ '+file.name;
+      renderDashboard(purchases,deposits,marketPrices);
+    }catch(err){
+      const eb=document.getElementById('errorBox');
+      eb.textContent='⚠️ '+err.message;
+      eb.style.display='block';
+      document.getElementById('dashboard').style.display='none';
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function renderDashboard(purchases,deposits,marketPrices={}){
+  const map={};
+  for(const p of purchases){
+    if(!map[p.ticker])map[p.ticker]={ticker:p.ticker,instrument:p.instrument,items:[]};
+    map[p.ticker].items.push(p);
+  }
+  const groups=Object.values(map).map(g=>{
+    const items=g.items.sort((a,b)=>new Date(a.date)-new Date(b.date));
+    const totalAmt=items.reduce((s,i)=>s+i.amount,0);
+    const totalVol=items.reduce((s,i)=>s+(i.volume||0),0);
+    const avgP=totalAmt/totalVol;
+    const lastBuyP=items[items.length-1].price;
+    const firstP=items[0].price;
+    const marketP=marketPrices[g.ticker]||null;
+    const currentP=marketP||lastBuyP;
+    const priceSource=marketP?'trh':'posl. nákup';
+    return{...g,items,totalAmt,totalVol,avgP,lastP:currentP,firstP,priceSource,
+      chgAvg:((currentP-avgP)/avgP)*100,chgFirst:((currentP-firstP)/firstP)*100};
+  });
+  const totalInv=groups.reduce((s,g)=>s+g.totalAmt,0);
+
+  const dash=document.getElementById('dashboard');
+  dash.innerHTML=`
+    <div class="metrics">
+      ${mc('Vklady','€'+deposits.toFixed(2),'Celkom vložené','#06b6d4')}
+      ${mc('Investované','€'+totalInv.toFixed(2),purchases.length+' nákupov','#3b82f6')}
+      ${mc('Zostatok','€'+(deposits-totalInv).toFixed(2),'Voľné prostriedky','#8b5cf6')}
+      ${mc('ETF fondov',groups.length,'v portfóliu','#f59e0b')}
+    </div>
+    <div class="etf-grid">${groups.map(etfCard).join('')}</div>
+    ${totalCard(groups)}
+    <div class="table-card">
+      <div class="table-title">Porovnanie výkonnosti ETF</div>
+      ${groups.map(g=>{
+        const c=getC(g.ticker);
+        const fmt=v=>(v>=0?'▲ ':'▼ ')+Math.abs(v).toFixed(2)+'%';
+        const colAvg=g.chgAvg<0?'#ef4444':'#22c55e';
+        const colFirst=g.chgFirst<0?'#ef4444':'#22c55e';
+        const val=(g.lastP*g.totalVol).toFixed(2);
+        return `<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;padding:8px 0;border-bottom:1px solid #f1f5f9">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="badge" style="background:${c.light};color:${c.text}">${g.ticker}</span>
+            <span style="font-size:12px;color:#64748b">${g.instrument}</span>
+          </div>
+          <div style="display:flex;gap:16px;align-items:center">
+            <div style="text-align:right">
+              <div style="font-size:10px;color:#94a3b8">Posl. cena</div>
+              <div style="font-size:14px;font-weight:600">€${g.lastP.toFixed(3)}</div>
+            </div>
+            <div style="text-align:right">
+              <div style="font-size:10px;color:#94a3b8">Hodnota</div>
+              <div style="font-size:14px;font-weight:600">€${val}</div>
+            </div>
+            <div style="text-align:right">
+              <div style="font-size:10px;color:#94a3b8">vs. priem.</div>
+              <div style="font-size:14px;font-weight:600;color:${colAvg}">${fmt(g.chgAvg)}</div>
+            </div>
+            <div style="text-align:right">
+              <div style="font-size:10px;color:#94a3b8">od 1. nákupu</div>
+              <div style="font-size:14px;font-weight:600;color:${colFirst}">${fmt(g.chgFirst)}</div>
+            </div>
+          </div>
+        </div>`;
+      }).join('')}
+      <div style="font-size:11px;color:#94a3b8;margin-top:8px">Počítané z poslednej nákupnej ceny v exporte</div>
+    </div>
+    <div class="table-card">
+      <div class="table-title">Všetky nákupy</div>
+      <div style="overflow-x:auto;max-height:390px;overflow-y:auto;">
+      <table>
+        <thead style="position:sticky;top:0;background:#fff;z-index:1"><tr>${['Dátum','Ticker','Fond','Cena','Ks','Suma'].map(h=>`<th>${h}</th>`).join('')}</tr></thead>
+        <tbody>${[...purchases].sort((a,b)=>new Date(b.date)-new Date(a.date)).map(tableRow).join('')}</tbody>
+      </table>
+      </div>
+    </div>`;
+  dash.style.display='block';
+
+  groups.forEach(g=>{
+    const canvas=document.getElementById('c_'+g.ticker.replace(/\./g,'_'));
+    if(!canvas)return;
+    const prices=g.items.map(i=>i.price);
+    const ctx=canvas.getContext('2d');
+    const w=canvas.width,h=canvas.height,pad=4;
+    const min=Math.min(...prices),max=Math.max(...prices),range=max-min||1;
+    const c=getC(g.ticker);
+    ctx.strokeStyle=g.chgFirst<0?'#ef4444':c.accent;
+    ctx.lineWidth=2; ctx.lineJoin='round';
+    ctx.beginPath();
+    prices.forEach((p,i)=>{
+      const x=pad+(i/(prices.length-1||1))*(w-pad*2);
+      const y=h-pad-((p-min)/range)*(h-pad*2);
+      i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+    });
+    ctx.stroke();
+    const lx=w-pad, ly=h-pad-((prices[prices.length-1]-min)/range)*(h-pad*2);
+    ctx.fillStyle=g.chgFirst<0?'#ef4444':c.accent;
+    ctx.beginPath();ctx.arc(lx,ly,3,0,Math.PI*2);ctx.fill();
+  });
+}
+
+function mc(label,value,sub,accent){
+  return `<div class="metric" style="border-left:3px solid ${accent}">
+    <div class="metric-label">${label}</div>
+    <div class="metric-value">${value}</div>
+    <div class="metric-sub">${sub}</div>
+  </div>`;
+}
+
+function etfCard(g){
+  const c=getC(g.ticker);
+  const neg=g.chgAvg<0,neg2=g.chgFirst<0;
+  const cid='c_'+g.ticker.replace(/\./g,'_');
+  return `<div class="etf-card">
+    <div class="etf-header" style="background:${c.bg}">
+      <div><div class="etf-ticker">${g.ticker}</div><div class="etf-name">${g.instrument}</div></div>
+      <canvas id="${cid}" width="120" height="44"></canvas>
+    </div>
+    <div class="etf-body">
+      <div class="etf-stats">
+        <div><div class="stat-label">Investované</div><div class="stat-value">€${g.totalAmt.toFixed(2)}</div></div>
+        <div><div class="stat-label">Počet ks</div><div class="stat-value">${g.totalVol.toFixed(4)}</div></div>
+        <div><div class="stat-label">Priem. cena</div><div class="stat-value">€${g.avgP.toFixed(3)}</div></div>
+        <div><div class="stat-label">Akt. cena <span style="font-size:9px;opacity:.6">(${g.priceSource})</span></div><div class="stat-value">€${g.lastP.toFixed(3)}</div></div>
+      </div>
+      <div class="perf-row">
+        <div class="perf-box" style="background:${neg?'#fef2f2':'#f0fdf4'}">
+          <div class="perf-label">vs. priem. cena</div>
+          <div class="perf-value" style="color:${neg?'#dc2626':'#16a34a'}">${neg?'▼':'▲'} ${Math.abs(g.chgAvg).toFixed(2)}%</div>
+        </div>
+        <div class="perf-box" style="background:${neg2?'#fef2f2':'#f0fdf4'}">
+          <div class="perf-label">od 1. nákupu</div>
+          <div class="perf-value" style="color:${neg2?'#dc2626':'#16a34a'}">${neg2?'▼':'▲'} ${Math.abs(g.chgFirst).toFixed(2)}%</div>
+        </div>
+      </div>
+      <div class="history">
+        <div class="history-label">Nákupná história (${g.items.length}x)</div>
+        <div class="history-pills">
+          ${g.items.map(i=>`<span class="pill" style="background:${c.light};color:${c.text}" title="${new Date(i.date).toLocaleDateString('sk-SK')}">€${i.price.toFixed(3)}</span>`).join('')}
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function buildPieSVG(groups){
+  const total=groups.reduce((s,g)=>s+g.lastP*g.totalVol,0);
+  const cx=54,cy=54,r=46,ir=26;
+  let angle=-Math.PI/2;
+  let slices='',legend='';
+  groups.forEach(g=>{
+    const val=g.lastP*g.totalVol;
+    const pct=val/total;
+    const sweep=pct*2*Math.PI;
+    const end=angle+sweep;
+    const c=getC(g.ticker);
+    const x1=(cx+r*Math.cos(angle)).toFixed(2),y1=(cy+r*Math.sin(angle)).toFixed(2);
+    const x2=(cx+r*Math.cos(end)).toFixed(2),y2=(cy+r*Math.sin(end)).toFixed(2);
+    const ix1=(cx+ir*Math.cos(angle)).toFixed(2),iy1=(cy+ir*Math.sin(angle)).toFixed(2);
+    const ix2=(cx+ir*Math.cos(end)).toFixed(2),iy2=(cy+ir*Math.sin(end)).toFixed(2);
+    const lg=sweep>Math.PI?1:0;
+    slices+=`<path d="M ${x1} ${y1} A ${r} ${r} 0 ${lg} 1 ${x2} ${y2} L ${ix2} ${iy2} A ${ir} ${ir} 0 ${lg} 0 ${ix1} ${iy1} Z" fill="${c.accent}"/>`;
+    legend+=`<div style="display:flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:50%;background:${c.accent};flex-shrink:0"></span><span style="font-size:10px;color:#94a3b8">${g.ticker} ${(pct*100).toFixed(1)}%</span></div>`;
+    angle=end;
+  });
+  return `<svg width="108" height="108" viewBox="0 0 108 108" style="margin-top:4px">${slices}</svg><div style="display:flex;flex-direction:column;gap:4px;margin-top:2px">${legend}</div>`;
+}
+
+function totalCard(groups){
+  const totalVal=groups.reduce((s,g)=>s+g.lastP*g.totalVol,0);
+  const totalInv=groups.reduce((s,g)=>s+g.totalAmt,0);
+  const diff=totalVal-totalInv;
+  const pct=((diff/totalInv)*100);
+  const pos=diff>=0;
+  return `<div class="etf-card" style="display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;background:#0f172a;border-color:#1e293b;padding:28px 20px;gap:6px;width:100%;margin-bottom:14px">
+    <div style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.08em">Celková hodnota portfólia</div>
+    <div style="font-size:38px;font-weight:700;color:#fff;letter-spacing:-1px">€${totalVal.toFixed(2)}</div>
+    <div style="font-size:13px;color:${pos?'#22c55e':'#ef4444'};font-weight:600">${pos?'▲':'▼'} €${Math.abs(diff).toFixed(2)} (${Math.abs(pct).toFixed(2)}%)</div>
+    <div style="font-size:11px;color:#475569">vs. investovaných €${totalInv.toFixed(2)}</div>
+    ${buildPieSVG(groups)}
+  </div>`;
+}
+
+function tableRow(p){
+  const c=getC(p.ticker);
+  const d=p.date instanceof Date?p.date.toLocaleDateString('sk-SK'):new Date(p.date).toLocaleDateString('sk-SK');
+  return `<tr>
+    <td style="color:#64748b">${d}</td>
+    <td><span class="badge" style="background:${c.light};color:${c.text}">${p.ticker}</span></td>
+    <td style="color:#334155">${p.instrument}</td>
+    <td style="font-weight:500">€${p.price.toFixed(3)}</td>
+    <td style="color:#64748b">${p.volume?p.volume.toFixed(4):'—'}</td>
+    <td style="font-weight:500">€${p.amount.toFixed(2)}</td>
+  </tr>`;
+}
+</script>
+</body>
+</html>
