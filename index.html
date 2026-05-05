@@ -215,7 +215,7 @@ function renderDashboard(purchases,deposits,marketPrices={}){
       ${mc('ETF fondov',groups.length,'v portfóliu','#f59e0b')}
     </div>
     <div class="etf-grid">${groups.map(etfCard).join('')}</div>
-    ${totalCard(groups)}
+    ${totalCard(groups,deposits)}
     <div class="table-card">
       <div class="table-title">Porovnanie výkonnosti ETF</div>
       ${groups.map(g=>{
@@ -352,17 +352,33 @@ function buildPieSVG(groups){
   return `<svg width="108" height="108" viewBox="0 0 108 108" style="margin-top:4px">${slices}</svg><div style="display:flex;flex-direction:column;gap:4px;margin-top:2px">${legend}</div>`;
 }
 
-function totalCard(groups){
+function totalCard(groups,deposits){
   const totalVal=groups.reduce((s,g)=>s+g.lastP*g.totalVol,0);
   const totalInv=groups.reduce((s,g)=>s+g.totalAmt,0);
+  const freeCash=(deposits||0)-totalInv;
+  const totalAccount=totalVal+freeCash;
   const diff=totalVal-totalInv;
   const pct=((diff/totalInv)*100);
   const pos=diff>=0;
+  const accDiff=totalAccount-(deposits||0);
+  const accPct=deposits?((accDiff/deposits)*100):0;
+  const accPos=accDiff>=0;
   return `<div class="etf-card" style="display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;background:#0f172a;border-color:#1e293b;padding:28px 20px;gap:6px;width:100%;margin-bottom:14px">
     <div style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.08em">Celková hodnota portfólia</div>
     <div style="font-size:38px;font-weight:700;color:#fff;letter-spacing:-1px">€${totalVal.toFixed(2)}</div>
     <div style="font-size:13px;color:${pos?'#22c55e':'#ef4444'};font-weight:600">${pos?'▲':'▼'} €${Math.abs(diff).toFixed(2)} (${Math.abs(pct).toFixed(2)}%)</div>
     <div style="font-size:11px;color:#475569">vs. investovaných €${totalInv.toFixed(2)}</div>
+    <div style="margin-top:14px;padding-top:14px;border-top:1px solid #1e293b;width:100%;display:flex;justify-content:space-around;align-items:center;gap:16px;flex-wrap:wrap">
+      <div style="text-align:center">
+        <div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.05em">Voľné prostriedky</div>
+        <div style="font-size:18px;font-weight:600;color:#cbd5e1">€${freeCash.toFixed(2)}</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.05em">Celkový stav účtu</div>
+        <div style="font-size:24px;font-weight:700;color:#fff">€${totalAccount.toFixed(2)}</div>
+        <div style="font-size:11px;color:${accPos?'#22c55e':'#ef4444'};font-weight:500">${accPos?'▲':'▼'} €${Math.abs(accDiff).toFixed(2)} (${Math.abs(accPct).toFixed(2)}%) vs. vklady</div>
+      </div>
+    </div>
     ${buildPieSVG(groups)}
   </div>`;
 }
